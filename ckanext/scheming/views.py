@@ -2,7 +2,7 @@
 from flask import Response, Blueprint
 from flask.views import MethodView
 from werkzeug.datastructures import MultiDict
-
+from ckantoolkit import config
 from ckan.plugins.toolkit import (
     h, request, get_action, abort, _, ObjectNotFound, NotAuthorized,
     ValidationError,
@@ -83,8 +83,15 @@ class SchemingCreatePageView(CreateView):
                 data_dict[u'tag_string']
             )
         data_dict.pop('pkg_name', None)
-        data_dict['state'] = 'draft'
-        # END: roughly copied from ckan/views/dataset.py
+
+
+        # Only set the state to draft if wither we need to add resources, or this is the last page of metadata
+        create_on_ui_requires_resources = config.get('ckan.dataset.create_on_ui_requires_resources')
+        pages = h.scheming_get_dataset_form_pages(package_type)
+        is_last_page = page == len(pages)
+        if not is_last_page or create_on_ui_requires_resources:
+            data_dict['state'] = 'draft'
+
 
         data_dict['id'] = id
         try:
@@ -109,9 +116,8 @@ class SchemingCreatePageView(CreateView):
             )
             # END: roughly copied from ckan/views/dataset.py
 
-        if page == len(h.scheming_get_dataset_form_pages(package_type)):
-            # BEGIN: roughly copied from ckan/views/dataset.py
-            if 'resource_fields' in h.scheming_get_dataset_schema(package_type):
+        if page == len(pages):
+            if 'resource_fields' in h.scheming_get_dataset_schema(package_type) and create_on_ui_requires_resources:
                 return h.redirect_to(
                     '{}_resource.new'.format(package_type),
                     id=data['name'],
@@ -121,7 +127,18 @@ class SchemingCreatePageView(CreateView):
                 id=data['name'],
             )
             # END: roughly copied from ckan/views/dataset.py
-
+        url = h.url_for(
+            u'{}_resource.new'.format(package_type),
+            id=data[u'name']
+        )
+        if create_on_ui_requires_resources:
+            # redirect to add dataset resources if
+            # create_on_ui_requires_resources is set to true
+            url = h.url_for(
+                u'{}_resource.new'.format(package_type),
+                id=data[u'name']
+            )
+            return h.redirect_to(url)
         return h.redirect_to(
             '{}.scheming_new_page'.format(package_type),
             id=complete_data['name'],
